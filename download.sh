@@ -20,6 +20,9 @@ fi
 cd "$1"
 
 for song in *.flac; do
+	if [ "$song" = "*.flac" ]; then
+		continue
+	  fi
 
 	# Check if lyrics file already exists
 	OUTPUTNAME=$(basename "$song" .flac).lrc
@@ -46,6 +49,63 @@ for song in *.flac; do
 	fi
 
 	TITLE=$(metaflac --show-tag="Title" "$song")
+	TITLE=${TITLE#*=} # Remove everything before and including =
+	if [ -z "$TITLE" ]; then
+		echo "$song doesn't have a Title tag."
+		continue
+	fi
+
+	LENGTH=$(soxi -D "$song")
+	if [ -z "$LENGTH" ]; then
+		echo "Can't get length. Is sox installed?"
+		continue
+	fi
+	LENGTH=$(printf "%.0f\n" $LENGTH) # Round length
+
+
+	REQUEST="/api/get?artist_name=$ARTIST&track_name=$TITLE&album_name=$ALBUM&duration=$LENGTH"
+	echo "Downloading lyrics for $ARTIST - $TITLE to $OUTPUTNAME"
+	curl -s -o - --get \
+		--data-urlencode "artist_name=$ARTIST" \
+		--data-urlencode "track_name=$TITLE" \
+		--data-urlencode "album_name=$ALBUM" \
+		--data-urlencode "duration=$LENGTH" \
+		https://lrclib.net/api/get | jq ".syncedLyrics // .plainLyrics" --raw-output > "$OUTPUTNAME" &
+	LRCFILES+=("$OUTPUTNAME")
+done
+
+for song in *.mp3; do
+
+	if [ "$song" = "*.mp3" ]; then
+		continue
+	  fi
+	# Check if lyrics file already exists
+	OUTPUTNAME=$(basename "$song" .mp3).lrc
+	if [ -e "$OUTPUTNAME" ]; then
+		echo "Lyrics already exist for: $(basename "$song" .mp3), skipping"
+		continue
+	fi
+
+	ARTIST=$(ffprobe -v quiet -show_entries format_tags=albumartist -of default=noprint_wrappers=1:nokey=1 "$song")
+	echo "$ARTIST"
+	if [ -z "$ARTIST" ]; then
+		ARTIST=$(ffprobe -v quiet -show_entries format_tags=artist -of default=noprint_wrappers=1:nokey=1 "$song")
+
+		if [ -z "$ARTIST" ]; then
+			echo "$song doesn't have a AlbumArtist or Artist tag ismp3."
+			continue
+		fi
+	fi
+	ARTIST=${ARTIST#*=} # Remove everything before and including =
+
+	ALBUM=$(ffprobe -v quiet -show_entries format_tags=Album -of default=noprint_wrappers=1:nokey=1 "$song")
+	ALBUM=${ALBUM#*=} # Remove everything before and including =
+	if [ -z "$ALBUM" ]; then
+		echo "$song doesn't have a Album tag."
+		continue
+	fi
+
+	TITLE=$(ffprobe -v quiet -show_entries format_tags=Title -of default=noprint_wrappers=1:nokey=1 "$song")
 	TITLE=${TITLE#*=} # Remove everything before and including =
 	if [ -z "$TITLE" ]; then
 		echo "$song doesn't have a Title tag."
